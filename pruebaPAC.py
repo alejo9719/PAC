@@ -6,15 +6,16 @@ from pygame.locals import *
 import levels
 from levels import *
 import heapq
+import random
 
 #THE LEVEL GRAPH IS BUILT USING THE CORNERS (OR INTERSECTIONS) IN THE LEVEL. CORNER INDEXES ON THIS IMPLEMENTATION START FROM 1.
 
-class cornerClass:
-    parent=None
-    index=0
-    f=0
-    g=0
-    h=0
+class cornerClass: #Class to represent a corner (node) in the A* algorithm
+    parent=None #Parent corner in the path
+    index=0 #Corner index
+    f=0 #Corner (node) cost evaluation function value
+    g=0 #Traveled distance cost
+    h=0 #Calculated heuristic value
 
 
     def __init__(self, cornerIndex):
@@ -48,33 +49,27 @@ class AStar: #Class to calculate the shortest path between corners using A*. Bas
             
             
     def getAdjCorners(self, corner):
-        adjCorners=[]
-        adjIndex=0
-        for i in adjMatrix[corner.index-1]:
-            if(i==1):
+        adjCorners=[] #List to save the adjacent corners
+        adjIndex=0 #Actual analyzed corner index
+        for i in adjMatrix[corner.index-1]: #Gets each corner adjacency state respect to the input one
+            if(i==1): #Checks if the analyzed corner is adjacent to the current one
                 adjCorners.append(self.cornerClasses[adjIndex]) #Create corner instance and append to the adjacent corner list
-            adjIndex+=1
-        return adjCorners
-        
-        
-    def calculateDistance(self, corner1, corner2):
-        #Extracts the corners' positions and calculates the distance in tiles:
-        distance=abs(cornerList[corner1.index-1][0]-cornerList[corner2.index-1][0])+abs(cornerList[corner1.index-1][1]-cornerList[corner2.index-1][1])
-        return distance
+            adjIndex+=1 #Increment the analyzed corner index
+        return adjCorners #Return adjacent corners list
     
     
     def calculatePath(self, corner):
-        path=[]
-        actualCorner=corner
+        path=[] #List to save the path positions
+        actualCorner=corner #Variable to save the actual analyzed corner
         path.insert(0, cornerList[actualCorner.index-1]) #Adds the position of the ending corner to the path
         while(actualCorner.parent!=None): #Follows the parent tree until it reaches the root
             actualCorner=actualCorner.parent #The corner to add is the parent of the current one
             path.insert(0, cornerList[actualCorner.index-1]) #Extracts the corner position from cornerList and adds it to the path
-        return path
+        return path #Return the path list
 
     
     def algorithm(self, startIndex, endIndex):
-        self.createCorners()
+        self.createCorners() #Create the array of classes corresponding to each corner
         start=self.cornerClasses[startIndex-1] #Extracts the class corresponding to the starting corner
         end=self.cornerClasses[endIndex-1] #Extracts the class corresponding to the ending corner
         heapq.heappush(self.openList, [start.f, start]) #Initialize the open list with the start corner
@@ -87,27 +82,27 @@ class AStar: #Class to calculate the shortest path between corners using A*. Bas
             adjCorners=self.getAdjCorners(corner) #Gets the list of corners adjacent to the current one
             for adjCorner in adjCorners: #Checks each corner adjacent to the current one
                 if adjCorner.index not in self.closedList: #Adjacent corner hasn't been visited
-                    adjG=corner.g+self.calculateDistance(corner, adjCorner) #G value of the adjacent corner on the current path
+                    adjG=corner.g+calculateDistance(corner.index, adjCorner.index) #G value of the adjacent corner on the current path
                     #print("Adjacent G: ", adjG)
                     if(adjCorner.f, adjCorner) in self.openList: #The adjacent corner is already in the open list
                         if adjCorner.g>adjG: #Adjacent corner previous G value is greater than the one it has on the current path
-                            adjCorner.updateCorner(corner, adjG, self.calculateDistance(adjCorner, end)) #Updates the corner parameters (parent, G and H)
+                            adjCorner.updateCorner(corner, adjG, calculateDistance(adjCorner.index, end.index)) #Updates the corner parameters (parent, G and H)
                     else: #The adjacent corner is not in the open list
-                        adjCorner.updateCorner(corner, adjG, self.calculateDistance(adjCorner, end)) #Update the adjacent corner parameters
+                        adjCorner.updateCorner(corner, adjG, calculateDistance(adjCorner.index, end.index)) #Update the adjacent corner parameters
                         heapq.heappush(self.openList, [adjCorner.f, adjCorner]) #Add the adjacent corner to the open list
 
                         
 
 class characterClass(pygame.sprite.Sprite):
-    currentPos=[4,1]
-    destPos=[4,1] #Initial facing 
-    lastKey=keys.RIGHT #Initial direction
+    currentPos=[4,1] #Current position in the level grid
+    destPos=[4,1] #Destination corner position
+    lastKey=keys.RIGHT #Facing direction
     
     
     def __init__(self, spritePath):
-        pygame.sprite.Sprite.__init__(self)
-        self.image = loadImage(spritePath, True)
-        self.rect = self.image.get_rect()
+        pygame.sprite.Sprite.__init__(self) #Call the parent class initializer
+        self.image = loadImage(spritePath, True) #Load the sprite image
+        self.rect = self.image.get_rect() #Create the sprite collision rectangle using the loaded image dimensions
         self.rect.centery = ((self.currentPos[0]+1) * HEIGHT / 36)-10 #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
         self.rect.centerx = ((self.currentPos[1]+1) * WIDTH / 28)-10   
     
@@ -119,27 +114,27 @@ class characterClass(pygame.sprite.Sprite):
     def draw(self): #Draws the character on the current position, looking to the current direction
         self.rect.centery = ((self.currentPos[0]+1) * HEIGHT / 36)-9 #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
         self.rect.centerx = ((self.currentPos[1]+1) * WIDTH / 28)-9
-
-
-
-class RedGhost(characterClass): #Red enemy class
+        
+        
+        
+class enemy(characterClass):
     states=Enum('states', 'Start Pathfinding Pathfollowing Escape') #Enumeration of the states of the FSM
     currentState=states.Start #Initial state of the enemy
+    findClosestCorner=True #Flag to indicate that the corner closest to the main character must be calculated
     FSMfunc=['waitForSpawn', #Functions to be executed for each state of the FSM
              'findPath',
              'move',
              'run'
              ]
-    path=[] #Path to be followed to attack the main character, initially empty
+    path=[] #Path to be followed by this enemy
     
-    def __init__(self, objectiveChar):
-        characterClass.__init__(self, "imagenes/red.png") 
-        self.objective=objectiveChar
-        self.currentPos=[4,26] #Initial character position
-        self.destPos=[4,26] #Initial destination position (same as initial position)
+    def __init__(self, objectiveChar, spritePath):
+        characterClass.__init__(self, spritePath) 
+        self.objective=objectiveChar #Sets the input class as the objective character
+        self.objectiveIndex=self.objective.nextCorner #Sets the objective's corner index as the objective's destination corner
         
         
-    def moveTo(self): #Function for the "Pathfollowing" state
+    def moveTo(self): #Function to get the next position and its direction respect to the current one
         if(len(self.path)!=0): #Path is not empty (current position is not the main character destination corner)
             self.destPos=self.path.pop(0) #Gets the next waypoint in the path
             #Checks the direction of the destination corner respect to the current one
@@ -151,35 +146,37 @@ class RedGhost(characterClass): #Red enemy class
                 self.lastKey=keys.RIGHT
             elif (self.destPos[1]<self.currentPos[1]):
                 self.lastKey=keys.LEFT
-
-
+                
+                
+    def calculateClosestCorner(self, originCorner, pathFinder): #Calculates the closest exterior corner to a grid position
+        mapCorners=[1, 6, 61, 64] #Exterior map corners
+        distMin=200 #Initialize the minimum distance to a value greater to any distance value
+        closestCorner=0 #Initialize the closest corner to a value that is not the index of any corner
+        for corner in mapCorners: #Get each exterior corner
+            if(calculateDistance(originCorner, corner)<distMin): #Calculate the distance to each exterior corner and compare to the minimum distance found
+                closestCorner=corner #Update the closest corner if the distance to the analyzed corner is shorter than the minimum distance previously found
+        
+        return closestCorner #Returns the closest corner found
+                
+                
     def executeState(self): #Executes the function corresponding to the current state
         eval('self.'+self.FSMfunc[self.currentState.value-1]+'()') #Evalues the expression func() using the following format: #eval('self'+'funcname'+'('+par+')')
-
-
-    def waitForSpawn(self): #Function for the "Start" state
-        print('Im waiting')
-        self.currentState=self.states.Pathfinding #Next state
-
-
-    def findPath(self): #Function for the "Pathfinding" state
-        print('Finding best path...')
-        pathFinder=AStar() #Creates instance of the A* path finder class
-        selfIndex=cornerMatrix[self.destPos[0], self.destPos[1]] #Extracts the index of the next corner to be reached by self
-        self.objectiveIndex=self.objective.lastCorner #Gets the corner index of the objective's last destination corner
-        self.path=pathFinder.algorithm(selfIndex, self.objectiveIndex) #Finds the shortest path to the objective
-        self.path.pop(0) #As the first corner in the path is the current destination, pop it from the path to not try to reach it while being there
         
-        del pathFinder #Releases the memory of the A* class instance
-        self.currentState=self.states.Pathfollowing #A path has been found, follow it
-
-
-    def move(self):
-        print('Im following the pizza')
+        
+    def waitForSpawn(self):
+        return
+        
+        
+    def findPath(self):
+        return
+        
+        
+    def move(self): #Function for the "Pathfollowing" state
+        #print('Im following the pizza')
         
         if(self.currentPos==self.destPos): #The character needs to find a corner to move to (destination corner reached)
             self.moveTo() #Finds the next corner to move to.
-            print("moveToExec")
+            #print("moveToExec")
         
         if(self.currentPos!=self.destPos): #The destination hasn't been reached. Keeps moving (if the position had been reached in the previous IF, but recalculated, keeps moving)
             if(self.lastKey==keys.UP or self.lastKey==keys.DOWN):
@@ -189,37 +186,177 @@ class RedGhost(characterClass): #Red enemy class
                 j=-1 if self.lastKey==keys.LEFT else 1 #If lastKey is LEFT, moves left, otherwise moves right
                 self.currentPos=[self.currentPos[0],self.currentPos[1]+j] #Moves one tile up or down
     
-        print(self.currentPos)
-        
-        if(self.objective.powerUP):
-            self.currentState=self.states.Escape
-        elif(self.objectiveIndex!=self.objective.lastCorner):
-            self.currentState=self.states.Pathfinding
-
-
+        #print(self.currentPos)
+                                                      
+                                                      
     def run(self): #Function for the "Escape" state
         #print('RUN!')
-        self.currentState=self.states.Escape
+        
+        if(self.objectiveIndex!=self.objective.nextCorner or self.findClosestCorner): #If the next corner to be reached by the objective changes, recalculate the path to the closest
+                                                                                      #escaping corner. The first time after changing to this state, it must always be executed
+            pathFinder=AStar() #Creates instance of the A* path finder class
+            myCorner=cornerMatrix[self.destPos[0], self.destPos[1]] #Extracts the index of the next corner to be reached by self
+            
+            self.objectiveIndex=self.objective.nextCorner #Objective's destination corner update
+            closestObjCorner=self.calculateClosestCorner(self.objectiveIndex, pathFinder) #Calculate the external corner closest to the objective
+            closestCorner=self.calculateClosestCorner(myCorner, pathFinder) #Extract destination corner index and calculate the closest external corner
+        
+            while(closestCorner==closestObjCorner): #If the closest corner is the one closer to the main character, pick another one #DEBUG
+                closestCorner=random.choice([1, 6, 61, 64]) #Pick another corner with a random choice
+            
+            self.path=pathFinder.algorithm(myCorner, closestCorner) #Finds the shortest path to the closest corner (that is not the closest to the main character)
+            self.path.pop(0) #As the first corner in the path is the current destination, pop it from the path to not try to reach it while being there                        
+            
+            del pathFinder #Free up the pathFinder instance memory
+            self.findClosestCorner=False #The closest escaping corner and the path to it has been foud
+        
+        self.move() #Move following the calculated path
+        
+        if(self.objective.powerUP==False):
+            findClosestCorner=True #Sets the find closest corner flag for the next time this state is executed
+            self.currentState=self.states.Pathfinding
+        
+        #VER EL CASO EN QUE EL FANTASMA MUERE
+
+
+
+class RedGhost(enemy): #Red (ambusher) enemy class
+    
+    def __init__(self, objectiveChar):
+        enemy.__init__(self, objectiveChar, "imagenes/red.png")
+        self.currentPos=[4,26] #Initial character position
+        self.destPos=[4,26] #Initial destination position (same as initial position)        
+
+
+    def waitForSpawn(self): #Function for the "Start" state
+        self.currentState=self.states.Pathfinding #Next state
+
+
+    def findPath(self): #Function for the "Pathfinding" state
+        pathFinder=AStar() #Creates instance of the A* path finder class
+        selfIndex=cornerMatrix[self.destPos[0], self.destPos[1]] #Extracts the index of the next corner to be reached by self
+        self.objectiveIndex=self.objective.nextCorner #Gets the corner index of the objective's next destination corner
+        self.path=pathFinder.algorithm(selfIndex, self.objectiveIndex) #Finds the shortest path to the objective's destination corner
+        self.path.pop(0) #As the first corner in the path is the current destination, pop it from the path to not try to reach it while being there
+        
+        del pathFinder #Releases the memory of the A* class instance
+        self.currentState=self.states.Pathfollowing #A path has been found, follow it
+        
+        
+    def move(self):
+        enemy.move(self) #Call the regular enemy pathfollowing function
+        
+        if(self.objective.powerUP): #Check for main character's powerUP
+            self.currentState=self.states.Escape
+        elif(self.objectiveIndex!=self.objective.nextCorner): #Main character's destination corner has changed
+            self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
+                                                      #Changing the state rather than calling the path calculation routine makes this character take 1 cycle to "think" the path,
+                                                      #giving the player a little speed advantage and reducing the game difficulty
+        
+        
+        
+class PinkGhost(enemy): #Pink (follower) enemy class
+    
+    def __init__(self, objectiveChar):
+        enemy.__init__(self, objectiveChar, "imagenes/pink.png")
+        self.currentPos=[4,12] #Initial character position
+        self.destPos=[4,12] #Initial destination position (same as initial position)
+        
+    
+    def waitForSpawn(self): #Function for the "Start" state
+        self.currentState=self.states.Pathfinding #Next state
+        
+        
+    def findPath(self): #Function for the "Pathfinding" state
+        pathFinder=AStar() #Creates instance of the A* path finder class
+        selfIndex=cornerMatrix[self.destPos[0], self.destPos[1]] #Extracts the index of the next corner to be reached by self
+        self.objectiveIndex=self.objective.nextCorner #Gets the corner index of the objective's next destination corner
+        destinationCorner=self.objective.lastCorner #Gets the corner index of the objective's last reached corner to set it as the path destination
+        self.path=pathFinder.algorithm(selfIndex, destinationCorner) #Finds the shortest path to the destination corner
+        self.path.pop(0) #As the first corner in the path is the current destination, pop it from the path to not try to reach it while being there
+        
+        del pathFinder #Releases the memory of the A* class instance
+        self.currentState=self.states.Pathfollowing #A path has been found, follow it
+        
+        
+    def move(self):
+        enemy.move(self) #Call the regular enemy pathfollowing function
+        
+        if(self.objective.powerUP): #Check for main character's powerUP
+            self.currentState=self.states.Escape
+        elif(self.objectiveIndex!=self.objective.nextCorner): #Main character's destination corner has changed
+            self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
+                                                      #Changing the state rather than calling the path calculation routine makes this character take 1 cycle to "think" the path,
+                                                      #giving the player a little speed advantage and reducing the game difficulty
+        
+        
+        
+class OrangeGhost(enemy): #Orange (stupid, a.k.a. random) enemy class #PODRIA IR A LA ESQUINA EXTERIOR MAS CERCANA AL PERSONAJE EN LUGAR DE A UNA ALEATORIA
+    
+    def __init__(self, objectiveChar):
+        enemy.__init__(self, objectiveChar, "imagenes/orange.png")
+        self.currentPos=[17,18] #Initial character position
+        self.destPos=[17,18] #Initial destination position (same as initial position)
+        
+        
+    def moveTo(self):
+        enemy.moveTo(self) #Executes the regular enemy moveTo function to get positions of the path
+        if(len(self.path)==0 and self.objective.powerUP==False): #If the path is empty (the destination exterior corner has been reached) calculates a new one immediately unless the main character has the power up
+            self.findPath()
+        
+        
+    def waitForSpawn(self): #Function for the "Start" state
+        self.currentState=self.states.Pathfollowing #Next state (Makes a decision at each intersection, no previous path calculation is made)
+        
+        
+    def findPath(self): #Function for the "Pathfinding" state
+        pathFinder=AStar() #Creates instance of the A* path finder class
+        selfIndex=cornerMatrix[self.destPos[0], self.destPos[1]] #Extracts the index of the next corner to be reached by self
+        self.objectiveIndex=self.objective.nextCorner #Gets the corner index of the objective's next destination corner
+        destinationCorner=random.choice([1, 6, 61, 64]) #Picks one exterior corner to go to
+        self.path=pathFinder.algorithm(selfIndex, destinationCorner) #Finds the shortest path to the destination corner
+        self.path.pop(0) #As the first corner in the path is the current destination, pop it from the path to not try to reach it while being there
+        
+        del pathFinder #Releases the memory of the A* class instance
+        self.currentState=self.states.Pathfollowing #A path has been found, follow it
+        
+        
+    def move(self):
+        enemy.move(self) #Call the regular enemy pathfollowing function
+        
+        if(self.objective.powerUP): #Check for main character's powerUP
+            self.currentState=self.states.Escape
+        #Here, the main character's destination corner doesn't matter as this enemy moves randomly across the map
         
         
         
 class halfBakedPizza(pygame.sprite.Sprite): #Main character class
         lastKey=keys.RIGHT #Initial direction
         powerUP=False #Power up activated flag. Initially false
-        currentPos=[]
-        destPos=[]
-        lastCorner=0
+        currentPos=[] #Current position
+        destPos=[] #Next corner position
+        nextCorner=0 #Destination corner index
+        lastCorner=0 #Last reached corner index
         
         
         def __init__(self):
             pygame.sprite.Sprite.__init__(self)
             self.destPos=[26,15] #Initial facing corner
             self.currentPos=[26,13] #Initial position
-            self.lastCorner=48 #Initial destination corner
+            self.nextCorner=48 #Initial destination corner
+            self.lastCorner=47 #Initial value of the previous corner
             self.image = loadImage("imagenes/pizza.png", True)
             self.rect = self.image.get_rect()
             self.rect.centery = ((self.currentPos[0]+1) * HEIGHT / 36)-10 #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
-            self.rect.centerx = ((self.currentPos[1]+1) * WIDTH / 28)-10      
+            self.rect.centerx = ((self.currentPos[1]+1) * WIDTH / 28)-10
+            
+            
+        def togglePower(self):
+            if(self.powerUP):
+                self.powerUP=False
+            else:
+                self.powerUP=True
+            #CAMBIAR LA ACCION AL COLISIIONAR CON FANTASMAS
         
         
         def moveTo(self, key): #Calculates the corner the character has to move to (if possible) when it reaches a corner or the direction changes
@@ -227,22 +364,23 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
             if(key==keys.UP or key==keys.DOWN): #Checks for corners connected to the current one upwards or downwards (key pressed is UP or DOWN)
                 i=self.currentPos[0]
                 j=-1 if key==keys.UP else 1 #If key is UP, looks upwards, otherwise looks downwards
-                while(i>0 and i<35 and found==0): #Searches for corners on top or below the current position until one is found. 0 and 35 are the limits of the cornerMatrix
+                while(i>=0 and i<35 and found==0): #Searches for corners on top or below the current position until one is found. 0 and 35 are the limits of the cornerMatrix
                     i+=j
                     found=cornerMatrix[i,self.currentPos[1]]
             elif(key==keys.LEFT or key==keys.RIGHT): #Similar to the previous IF, but using LEFT and RIGHT
                 i=self.currentPos[1]
                 j=-1 if key==keys.LEFT else 1
-                while(i>0 and i<27 and found==0):
+                while(i>=0 and i<27 and found==0):
                     i+=j
                     found=cornerMatrix[self.currentPos[0],i]
                     
             if(found!=0): #A corner was found on the specified direction from the actual one
-                print('Found: ',found)
-                if(adjMatrix[self.lastCorner-1][found-1]==1): #The current corner and the found one are connected
+                #print('Found: ',found)
+                if(adjMatrix[self.nextCorner-1][found-1]==1): #The current corner and the found one are connected
                     self.destPos=cornerList[found-1] #The found corner is the new destination
-                    print("Destpos: ", self.destPos)
-                    self.lastCorner=cornerMatrix[self.destPos[0], self.destPos[1]] #Updates the destination corner
+                    #print("Destpos: ", self.destPos)
+                    self.lastCorner=self.nextCorner #The previous destination corner is now the last one
+                    self.nextCorner=cornerMatrix[self.destPos[0], self.destPos[1]] #Updates the destination corner
                     self.lastKey=key #Updates the movement direction
                 elif(key!=self.lastKey): #If no adjacent corner was found on the specified direction, keeps looking on the current one
                     self.moveTo(self.lastKey)
@@ -262,6 +400,8 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
                 else:
                     j=-1 if self.lastKey==keys.LEFT else 1 #If lastKey is LEFT, moves left, otherwise moves right
                     self.currentPos=[self.currentPos[0],self.currentPos[1]+j] #Moves one tile up or down
+            
+            #VER EL CASO EN QUE MUERE (SE DEBEN BORRAR Y CREAR DE NUEVO LAS INSTANCIAS DEL PERSONAJE, ENEMIGOS Y REINICIAR LOS PUNTOS EN EL MAPA, PERO MANTENER PUNTAJES)
 
                 
         def draw(self): #Draws the character on the current position, looking to the current direction. MIRAR SI SE CAMBIA POR EL DE LA CLASE PADRE
@@ -283,41 +423,48 @@ def main():
     
     PAC=halfBakedPizza() #Create character instance
     blinky=RedGhost(PAC) #Create red enemy instance with PAC as it's objective
-    pathFinder=AStar()
-    
-    #path=pathFinder.algorithm(6, 42)
-    #print("Path: ",path)
+    pinky=PinkGhost(PAC) #Create pink enemy instance with PAC as it's objective
+    clyde=OrangeGhost(PAC) #Create orange enemy instance with PAC as it's objective
     
     key=keys.RIGHT #Initially pressed key
 
     while 1:
-        for event in pygame.event.get():
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_UP:
+        for event in pygame.event.get(): #Reads the pygame events that have happened
+            if event.type == pygame.KEYDOWN: #Reads the pressed keys
+                if event.key == pygame.K_UP: #Pressed key is up arrow
                     key = keys.UP
-                if event.key == pygame.K_DOWN:
+                if event.key == pygame.K_DOWN: #Pressed key is down arrow
                     key = keys.DOWN
-                if event.key == pygame.K_LEFT:
+                if event.key == pygame.K_LEFT: #Pressed key is left arrow
                     key = keys.LEFT
-                if event.key == pygame.K_RIGHT:
+                if event.key == pygame.K_RIGHT: #Pressed key is right arrow
                     key = keys.RIGHT
+                if event.key == pygame.K_SPACE: #Pressed key is spacebar
+                    PAC.togglePower()
 
             if event.type == QUIT:
                 exit()
                 
-        #CADA QUE SE CUMPLA EL TIEMPO PARA ACTUALIZAR FRAME:
         PAC.move(key) #Move the main character
-        PAC.draw()
+        PAC.draw() #Draw the character on it's actual position
         
         blinky.executeState() #Execute function of the actual state of the red enemy
-        blinky.draw()
+        blinky.draw() #Draw the enemy on it's actual position
+        
+        pinky.executeState() #Execute function of the actual state of the pink enemy
+        pinky.draw() #Draw the enemy on it's actual position
+        
+        clyde.executeState() #Execute function of the actual state of the orange enemy
+        clyde.draw() #Draw the enemy on it's actual position
 
         screen.blit(bg, (0, 0)) #Put background in position 0,0
-        screen.blit(PAC.image, PAC.rect) #Draw character
-        screen.blit(blinky.image, blinky.rect) #Draw enemy 1
+        screen.blit(PAC.image, PAC.rect) #Show character
+        screen.blit(blinky.image, blinky.rect) #Show enemy 1
+        screen.blit(pinky.image, pinky.rect) #Show enemy 2
+        screen.blit(clyde.image, clyde.rect) #Show enemy 3
         pygame.display.flip() #Update screen
         
-        clock.tick(10) #Mantains the FPS less or equal than 10
+        clock.tick(10) #Mantains the FPS less or equal than 10 (Puts a delay to the frame actualization to mantain the game velocity to 10 cycles per second)
         
     return 0
 
