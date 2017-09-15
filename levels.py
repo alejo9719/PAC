@@ -102,8 +102,9 @@ def calculateDistance(corner1, corner2):
     
 def loadImage(filename, transparent): #Loads an image
     image = pygame.image.load(filename)
-    image = image.convert()
+    #image = image.convert()
     if transparent:
-        color = image.get_at((0,0)) #Get the image color in the left superior corner
-        image.set_colorkey(color, RLEACCEL) #Set the taken color as the image color key
+        image=image.convert_alpha()
+        #color = image.get_at((0,0)) #Get the image color in the left superior corner
+        #image.set_colorkey(color, RLEACCEL) #Set the taken color as the image color key
     return image

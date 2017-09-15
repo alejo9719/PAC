@@ -93,6 +93,23 @@ class AStar: #Class to calculate the shortest path between corners using A*. Bas
 
                         
 
+class powerUP(pygame.sprite.Sprite):
+    
+    def __init__(self, initialPos): #Initialization fucntion which takes the initial position of the power up object
+        pygame.sprite.Sprite.__init__(self)
+        self.image = loadImage("imagenes/powerup.png", True) #Load the sprite image
+        self.rect = self.image.get_rect() #Create the sprite collision rectangle using the loaded image dimensions
+        self.rect.centery = ((initialPos[0]+1) * HEIGHT / 36)-10 #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
+        self.rect.centerx = ((initialPos[1]+1) * WIDTH / 28)-10
+        
+    def checkCollision(self, mainChar): #Checks collision with the main character
+        if(pygame.sprite.collide_rect(self, mainChar)):
+            mainChar.powerUPflag=True
+            return True
+        return False
+
+
+
 class characterClass(pygame.sprite.Sprite):
     currentPos=[4,1] #Current position in the level grid
     destPos=[4,1] #Destination corner position
@@ -121,6 +138,7 @@ class enemy(characterClass):
     states=Enum('states', 'Start Pathfinding Pathfollowing Escape') #Enumeration of the states of the FSM
     currentState=states.Start #Initial state of the enemy
     findClosestCorner=True #Flag to indicate that the corner closest to the main character must be calculated
+    destinationCorner=0
     FSMfunc=['waitForSpawn', #Functions to be executed for each state of the FSM
              'findPath',
              'move',
@@ -153,8 +171,10 @@ class enemy(characterClass):
         distMin=200 #Initialize the minimum distance to a value greater to any distance value
         closestCorner=0 #Initialize the closest corner to a value that is not the index of any corner
         for corner in mapCorners: #Get each exterior corner
-            if(calculateDistance(originCorner, corner)<distMin): #Calculate the distance to each exterior corner and compare to the minimum distance found
+            distance=calculateDistance(originCorner, corner)
+            if(distance<distMin): #Calculate the distance to each exterior corner and compare to the minimum distance found
                 closestCorner=corner #Update the closest corner if the distance to the analyzed corner is shorter than the minimum distance previously found
+                distMin=distance
         
         return closestCorner #Returns the closest corner found
                 
@@ -191,20 +211,24 @@ class enemy(characterClass):
                                                       
     def run(self): #Function for the "Escape" state
         #print('RUN!')
+        pathFinder=AStar() #Creates instance of the A* path finder class
+        closestObjCorner=self.calculateClosestCorner(self.objectiveIndex, pathFinder) #Calculate the external corner closest to the objective
         
-        if(self.objectiveIndex!=self.objective.nextCorner or self.findClosestCorner): #If the next corner to be reached by the objective changes, recalculate the path to the closest
-                                                                                      #escaping corner. The first time after changing to this state, it must always be executed
-            pathFinder=AStar() #Creates instance of the A* path finder class
+        #If the next corner to be reached by the objective changes, recalculate the path to the closest
+        #escaping corner. The first time after changing to this state, it must always be executed.
+        if(self.objectiveIndex!=self.objective.nextCorner or self.destinationCorner==closestObjCorner or self.findClosestCorner):
             myCorner=cornerMatrix[self.destPos[0], self.destPos[1]] #Extracts the index of the next corner to be reached by self
             
             self.objectiveIndex=self.objective.nextCorner #Objective's destination corner update
-            closestObjCorner=self.calculateClosestCorner(self.objectiveIndex, pathFinder) #Calculate the external corner closest to the objective
-            closestCorner=self.calculateClosestCorner(myCorner, pathFinder) #Extract destination corner index and calculate the closest external corner
+            #self.destinationCorner=self.calculateClosestCorner(myCorner, pathFinder) #Initialize the destination corner as the closest one
+            self.destinationCorner=0 #Initialize the destination corner
         
-            while(closestCorner==closestObjCorner): #If the closest corner is the one closer to the main character, pick another one #DEBUG
-                closestCorner=random.choice([1, 6, 61, 64]) #Pick another corner with a random choice
+            #if(self.destinationCorner==closestObjCorner): #The closest corner is also the one closer to the objective
+            exteriorCorners=[1, 6, 61, 64] #Define exterior corners
+            exteriorCorners.remove(closestObjCorner) #Remove the corner closest to the main character from the possible choices
+            self.destinationCorner=random.choice(exteriorCorners) #Pick a random corner between the possible choices
             
-            self.path=pathFinder.algorithm(myCorner, closestCorner) #Finds the shortest path to the closest corner (that is not the closest to the main character)
+            self.path=pathFinder.algorithm(myCorner, self.destinationCorner) #Finds the shortest path to the closest corner (that is not the closest to the main character)
             self.path.pop(0) #As the first corner in the path is the current destination, pop it from the path to not try to reach it while being there                        
             
             del pathFinder #Free up the pathFinder instance memory
@@ -212,11 +236,9 @@ class enemy(characterClass):
         
         self.move() #Move following the calculated path
         
-        if(self.objective.powerUP==False):
+        if(self.objective.powerUPflag==False):
             findClosestCorner=True #Sets the find closest corner flag for the next time this state is executed
             self.currentState=self.states.Pathfinding
-        
-        #VER EL CASO EN QUE EL FANTASMA MUERE
 
 
 
@@ -246,12 +268,13 @@ class RedGhost(enemy): #Red (ambusher) enemy class
     def move(self):
         enemy.move(self) #Call the regular enemy pathfollowing function
         
-        if(self.objective.powerUP): #Check for main character's powerUP
+        if(self.objective.powerUPflag): #Check for main character's powerUPflag
             self.currentState=self.states.Escape
         elif(self.objectiveIndex!=self.objective.nextCorner): #Main character's destination corner has changed
-            self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
+            #self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
                                                       #Changing the state rather than calling the path calculation routine makes this character take 1 cycle to "think" the path,
                                                       #giving the player a little speed advantage and reducing the game difficulty
+            self.findPath()
         
         
         
@@ -282,12 +305,13 @@ class PinkGhost(enemy): #Pink (follower) enemy class
     def move(self):
         enemy.move(self) #Call the regular enemy pathfollowing function
         
-        if(self.objective.powerUP): #Check for main character's powerUP
+        if(self.objective.powerUPflag): #Check for main character's powerUPflag
             self.currentState=self.states.Escape
         elif(self.objectiveIndex!=self.objective.nextCorner): #Main character's destination corner has changed
-            self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
+            #self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
                                                       #Changing the state rather than calling the path calculation routine makes this character take 1 cycle to "think" the path,
                                                       #giving the player a little speed advantage and reducing the game difficulty
+            self.findPath()
         
         
         
@@ -301,7 +325,7 @@ class OrangeGhost(enemy): #Orange (stupid, a.k.a. random) enemy class #PODRIA IR
         
     def moveTo(self):
         enemy.moveTo(self) #Executes the regular enemy moveTo function to get positions of the path
-        if(len(self.path)==0 and self.objective.powerUP==False): #If the path is empty (the destination exterior corner has been reached) calculates a new one immediately unless the main character has the power up
+        if(len(self.path)==0 and self.objective.powerUPflag==False): #If the path is empty (the destination exterior corner has been reached) calculates a new one immediately unless the main character has the power up
             self.findPath()
         
         
@@ -324,7 +348,7 @@ class OrangeGhost(enemy): #Orange (stupid, a.k.a. random) enemy class #PODRIA IR
     def move(self):
         enemy.move(self) #Call the regular enemy pathfollowing function
         
-        if(self.objective.powerUP): #Check for main character's powerUP
+        if(self.objective.powerUPflag): #Check for main character's powerUPflag
             self.currentState=self.states.Escape
         #Here, the main character's destination corner doesn't matter as this enemy moves randomly across the map
         
@@ -332,7 +356,7 @@ class OrangeGhost(enemy): #Orange (stupid, a.k.a. random) enemy class #PODRIA IR
         
 class halfBakedPizza(pygame.sprite.Sprite): #Main character class
         lastKey=keys.RIGHT #Initial direction
-        powerUP=False #Power up activated flag. Initially false
+        powerUPflag=False #Power up activated flag. Initially false
         currentPos=[] #Current position
         destPos=[] #Next corner position
         nextCorner=0 #Destination corner index
@@ -352,10 +376,10 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
             
             
         def togglePower(self):
-            if(self.powerUP):
-                self.powerUP=False
+            if(self.powerUPflag):
+                self.powerUPflag=False
             else:
-                self.powerUP=True
+                self.powerUPflag=True
             #CAMBIAR LA ACCION AL COLISIIONAR CON FANTASMAS
         
         
@@ -425,6 +449,8 @@ def main():
     blinky=RedGhost(PAC) #Create red enemy instance with PAC as it's objective
     pinky=PinkGhost(PAC) #Create pink enemy instance with PAC as it's objective
     clyde=OrangeGhost(PAC) #Create orange enemy instance with PAC as it's objective
+    enemies=[blinky, pinky, clyde]
+    powers=[powerUP([6,1]), powerUP([6,26]), powerUP([26,1]), powerUP([26,26])]
     
     key=keys.RIGHT #Initially pressed key
 
@@ -450,19 +476,56 @@ def main():
         
         blinky.executeState() #Execute function of the actual state of the red enemy
         blinky.draw() #Draw the enemy on it's actual position
-        
         pinky.executeState() #Execute function of the actual state of the pink enemy
-        pinky.draw() #Draw the enemy on it's actual position
-        
+        pinky.draw() #Draw the enemy on it's actual position        
         clyde.executeState() #Execute function of the actual state of the orange enemy
         clyde.draw() #Draw the enemy on it's actual position
 
-        screen.blit(bg, (0, 0)) #Put background in position 0,0
+        screen.blit(bg, (0, 0)) #Put background in position 0,0 (it has to be drawn before other elements for them to appear on top of it)
+        
+        for power in powers: #Checks collision with every power pellet
+            screen.blit(power.image, power.rect) #Show pellet sprite (it has to be drawn before the characters in order to appear below them)
+            if(power.checkCollision(PAC)): #If the pellet collides with the main character, remove it
+                powers.remove(power) #Remove the object from the list and the garbage collector should delete it from memory
+                
         screen.blit(PAC.image, PAC.rect) #Show character
         screen.blit(blinky.image, blinky.rect) #Show enemy 1
         screen.blit(pinky.image, pinky.rect) #Show enemy 2
         screen.blit(clyde.image, clyde.rect) #Show enemy 3
+        
         pygame.display.flip() #Update screen
+        
+        #Check collisions between the main character and the enemies:
+        i=0 #Index of the enemy
+        for enemy in enemies:
+            if(pygame.sprite.collide_rect(PAC, enemy)): #Check collision with each enemy
+            #if (pygame.sprite.collide_rect(PAC, blinky) or pygame.sprite.collide_rect(PAC, pinky) or pygame.sprite.collide_rect(PAC, clyde)):
+                if(PAC.powerUPflag): #The main character hass the power up
+                    #Check which enemy is the "killed" one:
+                    if(i==0): 
+                        del blinky #Delete the enemy instance
+                        blinky=RedGhost(PAC) #Create a new enemy instance
+                    if(i==1):
+                        del pinky
+                        pinky=PinkGhost(PAC)
+                    if(i==2):
+                        del clyde
+                        clyde=OrangeGhost(PAC)
+                else:
+                    #Delete the actual game state
+                    del PAC
+                    del blinky
+                    del pinky
+                    del clyde
+                    #Restart the game state
+                    PAC=halfBakedPizza() #Create character instance
+                    blinky=RedGhost(PAC) #Create red enemy instance with PAC as it's objective
+                    pinky=PinkGhost(PAC) #Create pink enemy instance with PAC as it's objective
+                    clyde=OrangeGhost(PAC) #Create orange enemy instance with PAC as it's objective
+                    key=keys.RIGHT #Set the initial value of key
+                
+                enemies=[blinky, pinky, clyde] #Restart the enemies list with the new instances
+            i+=1
         
         clock.tick(10) #Mantains the FPS less or equal than 10 (Puts a delay to the frame actualization to mantain the game velocity to 10 cycles per second)
         
