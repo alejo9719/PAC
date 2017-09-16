@@ -104,7 +104,7 @@ class powerUP(pygame.sprite.Sprite):
         
     def checkCollision(self, mainChar): #Checks collision with the main character
         if(pygame.sprite.collide_rect(self, mainChar)):
-            mainChar.powerUPflag=True
+            mainChar.activatePower()
             return True
         return False
 
@@ -147,7 +147,8 @@ class enemy(characterClass):
     path=[] #Path to be followed by this enemy
     
     def __init__(self, objectiveChar, spritePath):
-        characterClass.__init__(self, spritePath) 
+        self.sprite=spritePath #Save original sprite path to use it when going out of vulnerable state
+        characterClass.__init__(self, spritePath) #Initialize the character
         self.objective=objectiveChar #Sets the input class as the objective character
         self.objectiveIndex=self.objective.nextCorner #Sets the objective's corner index as the objective's destination corner
         
@@ -238,7 +239,8 @@ class enemy(characterClass):
         
         if(self.objective.powerUPflag==False):
             findClosestCorner=True #Sets the find closest corner flag for the next time this state is executed
-            self.currentState=self.states.Pathfinding
+            self.image=loadImage(self.sprite, True) #Revert sprite image to the original one
+            self.currentState=self.states.Pathfinding #Change to path finding state
 
 
 
@@ -246,8 +248,8 @@ class RedGhost(enemy): #Red (ambusher) enemy class
     
     def __init__(self, objectiveChar):
         enemy.__init__(self, objectiveChar, "imagenes/red.png")
-        self.currentPos=[4,26] #Initial character position
-        self.destPos=[4,26] #Initial destination position (same as initial position)        
+        self.currentPos=[14,12] #Initial character position
+        self.destPos=[14,12] #Initial destination position (same as initial position)        
 
 
     def waitForSpawn(self): #Function for the "Start" state
@@ -269,6 +271,7 @@ class RedGhost(enemy): #Red (ambusher) enemy class
         enemy.move(self) #Call the regular enemy pathfollowing function
         
         if(self.objective.powerUPflag): #Check for main character's powerUPflag
+            self.image=loadImage("imagenes/vulnerable.png", True)
             self.currentState=self.states.Escape
         elif(self.objectiveIndex!=self.objective.nextCorner): #Main character's destination corner has changed
             #self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
@@ -282,8 +285,8 @@ class PinkGhost(enemy): #Pink (follower) enemy class
     
     def __init__(self, objectiveChar):
         enemy.__init__(self, objectiveChar, "imagenes/pink.png")
-        self.currentPos=[4,12] #Initial character position
-        self.destPos=[4,12] #Initial destination position (same as initial position)
+        self.currentPos=[14,12] #Initial character position
+        self.destPos=[14,12] #Initial destination position (same as initial position)
         
     
     def waitForSpawn(self): #Function for the "Start" state
@@ -306,6 +309,7 @@ class PinkGhost(enemy): #Pink (follower) enemy class
         enemy.move(self) #Call the regular enemy pathfollowing function
         
         if(self.objective.powerUPflag): #Check for main character's powerUPflag
+            self.image=loadImage("imagenes/vulnerable.png", True)
             self.currentState=self.states.Escape
         elif(self.objectiveIndex!=self.objective.nextCorner): #Main character's destination corner has changed
             #self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination corner has changed
@@ -319,8 +323,8 @@ class OrangeGhost(enemy): #Orange (stupid, a.k.a. random) enemy class #PODRIA IR
     
     def __init__(self, objectiveChar):
         enemy.__init__(self, objectiveChar, "imagenes/orange.png")
-        self.currentPos=[17,18] #Initial character position
-        self.destPos=[17,18] #Initial destination position (same as initial position)
+        self.currentPos=[14,12] #Initial character position
+        self.destPos=[14,12] #Initial destination position (same as initial position)
         
         
     def moveTo(self):
@@ -349,6 +353,7 @@ class OrangeGhost(enemy): #Orange (stupid, a.k.a. random) enemy class #PODRIA IR
         enemy.move(self) #Call the regular enemy pathfollowing function
         
         if(self.objective.powerUPflag): #Check for main character's powerUPflag
+            self.image=loadImage("imagenes/vulnerable.png", True)
             self.currentState=self.states.Escape
         #Here, the main character's destination corner doesn't matter as this enemy moves randomly across the map
         
@@ -361,6 +366,7 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
         destPos=[] #Next corner position
         nextCorner=0 #Destination corner index
         lastCorner=0 #Last reached corner index
+        powerUPBegin=0 #Time value of the last power up activation
         
         
         def __init__(self):
@@ -375,12 +381,14 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
             self.rect.centerx = ((self.currentPos[1]+1) * WIDTH / 28)-10
             
             
-        def togglePower(self):
-            if(self.powerUPflag):
-                self.powerUPflag=False
-            else:
-                self.powerUPflag=True
-            #CAMBIAR LA ACCION AL COLISIIONAR CON FANTASMAS
+        def activatePower(self):
+            self.powerUPBegin=pygame.time.get_ticks() #Set the actual time value to powerUPbegin
+            self.powerUPflag=True #Activate the power up
+            
+            
+        def powerTimer(self):
+            if(self.powerUPflag and pygame.time.get_ticks()-self.powerUPBegin>=4000): #The power up is activated and the time is up
+                self.powerUPflag=False #Deactivate the power up
         
         
         def moveTo(self, key): #Calculates the corner the character has to move to (if possible) when it reaches a corner or the direction changes
@@ -413,9 +421,9 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
             #If there is no corner connected to the current one on the specified direction, the destination corner stays the same
         
         
-        def move(self, key): #It's called on each cycle.
+        def move(self, key): #It's called on each cycle. It manages the movement of the character.
             if(self.currentPos==self.destPos or key!=self.lastKey): #The character needs to find a corner to move to (corner reached or direction changed)
-                self.moveTo(key) #Finds the corner. If the direction hasn't changed, keeps moving in the same direction
+                self.moveTo(key) #Finds the next destination corner according to the actual direction. If the direction hasn't changed, keeps moving in the same direction
 
             if(self.currentPos!=self.destPos): #The destination hasn't been reached. Keeps moving (if the position had been reached in the previous IF, but recalculated, keeps moving)
                 if(self.lastKey==keys.UP or self.lastKey==keys.DOWN):
@@ -425,7 +433,7 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
                     j=-1 if self.lastKey==keys.LEFT else 1 #If lastKey is LEFT, moves left, otherwise moves right
                     self.currentPos=[self.currentPos[0],self.currentPos[1]+j] #Moves one tile up or down
             
-            #VER EL CASO EN QUE MUERE (SE DEBEN BORRAR Y CREAR DE NUEVO LAS INSTANCIAS DEL PERSONAJE, ENEMIGOS Y REINICIAR LOS PUNTOS EN EL MAPA, PERO MANTENER PUNTAJES)
+            self.powerTimer() #Calls the method that checks if the power up is active and if it has to be deactivated yet
 
                 
         def draw(self): #Draws the character on the current position, looking to the current direction. MIRAR SI SE CAMBIA POR EL DE LA CLASE PADRE
@@ -465,8 +473,8 @@ def main():
                     key = keys.LEFT
                 if event.key == pygame.K_RIGHT: #Pressed key is right arrow
                     key = keys.RIGHT
-                if event.key == pygame.K_SPACE: #Pressed key is spacebar
-                    PAC.togglePower()
+                #if event.key == pygame.K_SPACE: #Pressed key is spacebar
+                    #PAC.togglePower()
 
             if event.type == QUIT:
                 exit()
