@@ -1,5 +1,6 @@
 import sys
 import pygame
+import math
 from pygame.locals import *
 import numpy as np
 from enum import Enum
@@ -105,3 +106,35 @@ def loadImage(filename, transparency): #Loads an image
     if transparency: #If transparency is activated, convert the transparent zones to alpha
         image=image.convert_alpha()
     return image
+
+###################################################################################LEVEL 2###################################################################################
+
+#LEVEL DESCRIPTION IS MADE USING COORDINATE PAIRS. IT IS, A WALL IS DEFINED BETWEEN TWO COORDINATES AND DRAWN AUTOMATICALLY BY FILLING THE "levelMatrix" WHICH CONTAINS THE LEVEL GRID
+#DESCRIPTION, WITH 1's REPRESENTING A WALL AND 0's REPRESENTING AN EMPTY SPACE
+
+WIDTH2 = 1000
+HEIGHT2 = 700
+
+wallsMatrix=[[[26,10],[29,10]], [[25,10],[29,13]]] #Level walls definition
+
+def calculateNextTile(point1, point2): #Calculates the direction angle between 2 points taking the positive horizontal axis as reference
+    direction=math.atan((point2[1]-point1[1])/(point2[0]-point1[0])) #Calculate the direction angle
+    centerX=point1[0]+0.5 #Calculate the center of the starting point tile
+    centerY=point1[1]+0.5 #Calculate the center of the starting point tile
+    xTile=int(centerX+(math.cos(direction))) #Next tile X
+    yTile=int(centerY+(math.sin(direction))) #Next tile Y
+    return [xTile, yTile]
+
+#def calcLevelMatrix():
+#    for wall in wallsMatrix: #Extracts the coordinates of each wall
+#        actualTile=wall[0] #The actual tile starts in the origin position
+#        while(True): #Emulated do-While
+#            levelMatrix[actualTile[0]][actualTile[1]]=1 #Fills the actual wall tile
+#            if(actualTile==wall[1]): #Reached the end of the wall
+#                break
+#            actualTile=calculateNextTile(actualTile, wall[1]) #Calculates next tile to fill
+        
+def calculateContinuousDistance(tile1, tile2): #MODIFICAR PARA QUE NO SEA DISTANCIA MANHATTAN
+    #Extracts the corners' positions and calculates the distance in tiles:
+    distance=abs(tile1.x-tile2.x)+abs(tile1.y-tile2.y)
+    return distance
