@@ -496,6 +496,9 @@ def main():
             if(power.checkCollision(PAC)): #If the pellet collides with the main character, remove it
                 powers.remove(power) #Remove the object from the list and the garbage collector should delete it from memory
                 
+        if(len(powers)==0):
+            return
+                
         screen.blit(PAC.image, PAC.rect) #Show character
         screen.blit(blinky.image, blinky.rect) #Show enemy 1
         screen.blit(pinky.image, pinky.rect) #Show enemy 2

@@ -115,7 +115,10 @@ def loadImage(filename, transparency): #Loads an image
 WIDTH2 = 1000
 HEIGHT2 = 700
 
-wallsMatrix=[[[26,10],[29,10]], [[25,10],[29,13]]] #Level walls definition
+#wallsMatrix=[[[26,10],[29,10]], [[25,10],[29,13]]] #Level walls definition
+
+obstacles=[]
+powers=[]
 
 def calculateNextTile(point1, point2): #Calculates the direction angle between 2 points taking the positive horizontal axis as reference
     direction=math.atan((point2[1]-point1[1])/(point2[0]-point1[0])) #Calculate the direction angle
@@ -134,7 +137,45 @@ def calculateNextTile(point1, point2): #Calculates the direction angle between 2
 #                break
 #            actualTile=calculateNextTile(actualTile, wall[1]) #Calculates next tile to fill
         
-def calculateContinuousDistance(tile1, tile2): #MODIFICAR PARA QUE NO SEA DISTANCIA MANHATTAN
+def calculateContinuousDistance(pos1, pos2): #MODIFICAR PARA QUE NO SEA DISTANCIA MANHATTAN
     #Extracts the corners' positions and calculates the distance in tiles:
-    distance=abs(tile1.x-tile2.x)+abs(tile1.y-tile2.y)
+    distance=abs(pos1[0]-pos2[0])+abs(pos1[1]-pos2[1])
     return distance
+
+def calculateAngle(x, y):
+    direction=0
+    if (x==0):
+        if(y>0):
+            direction=math.pi/2
+        elif(y<0):
+            direction=-math.pi/2
+    else:
+        direction=math.atan(y/x) #Calculate the theoretical direction angle
+        #Apply conditions to calculate the real angle
+        if(x<0 and y<0):
+            direction+=math.pi
+        elif (x<0 and y>0):
+            direction+=math.pi
+        elif (y==0):
+            if(x<0):
+                direction=math.pi
+            elif(x>0):
+                direction=0
+        
+    return direction
+
+
+def calculateMagnitude(x, y):
+    return math.sqrt(math.pow(x,2)+math.pow(y,2))
+
+
+def normalizeVector(vector):
+    magnitude=calculateMagnitude(vector[0], vector[1])
+    if magnitude: #Vector different from 0
+        normalizedX=vector[0]/magnitude
+        normalizedY=vector[1]/magnitude
+        normalizedVector=[normalizedX, normalizedY]
+    else:
+        normalizedVector=[0,0]
+        
+    return normalizedVector

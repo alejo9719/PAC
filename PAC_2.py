@@ -2,9 +2,10 @@ import sys
 import numpy as np
 from enum import Enum
 import pygame
-from pygame.locals import *
-import levels
+from pygame.locals import * #Difference between "import module" and "from module import": With the second you have to specify which functions to import (if you use *, you import everything),
+#but you can use as "function" instead of "module.function".
 from levels import *
+from behaviourTrees import *
 import heapq
 import random
 
@@ -89,13 +90,13 @@ class AStar: #Class to calculate the shortest path between corners using A*. Bas
             adjTiles=self.getAdjTiles(tile.index) #Gets the list of tiles adjacent to the current one
             for adjTile in adjTiles: #Checks each tile adjacent to the current one
                 if adjTile.index not in self.closedList: #Adjacent tile hasn't been visited
-                    adjG=tile.g+calculateContinuousDistance(tile, adjTile) #G value of the adjacent tile on the current path
+                    adjG=tile.g+calculateContinuousDistance([tile.x,tile.y], [adjTile.x,adjTile.y]) #G value of the adjacent tile on the current path
                     #print("Adjacent G: ", adjG)
                     if(adjTile.f, adjTile) in self.openList: #The adjacent tile is already in the open list
                         if adjTile.g>adjG: #Adjacent tile previous G value is greater than the one it has on the current path
-                            adjTile.updateTile(tile, adjG, calculateContinuousDistance(adjTile, end)) #Updates the tile parameters (parent, G and H)
+                            adjTile.updateTile(tile, adjG, calculateContinuousDistance([adjTile.x,adjTile.y], [end.x, end.y])) #Updates the tile parameters (parent, G and H)
                     else: #The adjacent tile is not in the open list
-                        adjTile.updateTile(tile, adjG, calculateContinuousDistance(adjTile, end)) #Update the adjacent tile parameters
+                        adjTile.updateTile(tile, adjG, calculateContinuousDistance([adjTile.x,adjTile.y], [end.x, end.y])) #Update the adjacent tile parameters
                         heapq.heappush(self.openList, [adjTile.f, adjTile]) #Add the adjacent tile to the open list
 
                         
@@ -104,16 +105,41 @@ class powerUP(pygame.sprite.Sprite):
     
     def __init__(self, initialPos): #Initialization fucntion which takes the initial position of the power up object
         pygame.sprite.Sprite.__init__(self)
-        self.image = loadImage("imagenes/powerup.png", True) #Load the sprite image
+        self.currentPos=[0,0]
+        self.image = loadImage("imagenes/star.png", True) #Load the sprite image
         self.rect = self.image.get_rect() #Create the sprite collision rectangle using the loaded image dimensions
-        self.rect.centery = ((initialPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
-        self.rect.centerx = ((initialPos[1]+1) * 5)
+        self.currentPos[0]=initialPos[0]
+        self.currentPos[1]=initialPos[1]
+        self.rect.centerx = ((self.currentPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
+        self.rect.centery = ((self.currentPos[1]+1) * 5)
         
-    def checkCollision(self, mainChar): #Checks collision with the main character
+    def checkCollision(self, mainChar, mainEnemy): #Checks collision with the main character
         if(pygame.sprite.collide_rect(self, mainChar)):
-            mainChar.activatePower()
+            mainEnemy.killMinion()
             return True
+        if(pygame.sprite.collide_rect(self, mainEnemy)):
+            mainEnemy.respawnMinion()
+            return True
+        for minion in mainEnemy.minions:
+            if(pygame.sprite.collide_rect(self, minion)):
+                mainEnemy.respawnMinion()
+                return True
         return False
+
+
+
+class obstacle(pygame.sprite.Sprite):
+    
+    def __init__(self, initialPos):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = loadImage("imagenes/obstacle.png", True) #Load the sprite image
+        self.rect = self.image.get_rect() #Create the sprite collision rectangle using the loaded image dimensions
+        self.rect.centerx = ((initialPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
+        self.rect.centery = ((initialPos[1]+1) * 5)
+        self.currentPos=[0,0]
+        self.currentPos[0]=initialPos[0]
+        self.currentPos[1]=initialPos[1]
+        repellingForce=10
 
 
 
@@ -126,8 +152,8 @@ class characterClass(pygame.sprite.Sprite):
         pygame.sprite.Sprite.__init__(self) #Call the parent class initializer
         self.image = loadImage(spritePath, True) #Load the sprite image
         self.rect = self.image.get_rect() #Create the sprite collision rectangle using the loaded image dimensions
-        self.rect.centery = ((self.currentPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
-        self.rect.centerx = ((self.currentPos[1]+1) * 5)   
+        self.rect.centerx = ((self.currentPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
+        self.rect.centery = ((self.currentPos[1]+1) * 5)   
     
     
     def move(self):
@@ -145,8 +171,6 @@ class enemy(characterClass):
     currentState=states.Start #Initial state of the enemy
     findClosestCorner=True #Flag to indicate that the corner closest to the main character must be calculated
     destinationTile=0
-    objectivePos=[0,0]
-    destPos=[0,0]
     FSMfunc=['waitForSpawn', #Functions to be executed for each state of the FSM
              'findPath',
              'move',
@@ -154,41 +178,19 @@ class enemy(characterClass):
              ]
     path=[] #Path to be followed by this enemy
     
-    def __init__(self, objectiveChar, spritePath):
+    def __init__(self, spritePath):
         self.sprite=spritePath #Save original sprite path to use it when going out of vulnerable state
         characterClass.__init__(self, spritePath) #Initialize the character
-        self.objective=objectiveChar #Sets the input class as the objective character
-        self.objectivePos[0]=self.objective.currentPos[0] #Sets the objective's tile index as the objective's destination tile
-        self.objectivePos[1]=self.objective.currentPos[1]
-        self.directionAngle=0
+        self.currentPos=[90,90] #Initial character position
+        self.objectivePos=[0,0]
+        self.destPos=[0,0]
+        self.directionVector=[0,0]
+        self.speed=3.9
         
         
     def moveTo(self): #Function to get the next position and its direction respect to the current one
-        #if(len(self.path)!=0): #Path is not empty (current position is not the main character destination tile)
-        #    self.destPos=self.path.pop(0) #Gets the next waypoint in the path
-        self.objectivePos[0]=self.objective.currentPos[0] #Gets the objective's position tile
-        self.objectivePos[1]=self.objective.currentPos[1]        
-        y=self.objectivePos[1]-self.currentPos[1]
-        x=self.objectivePos[0]-self.currentPos[0]
-        if (x==0):
-            if(y>0):
-                direction=math.pi/2
-            elif(y<0):
-                direction=-math.pi/2
-        else:
-            direction=math.atan(y/x) #Calculate the theoretical direction angle
-            #Apply conditions to calculate the real angle
-            if(x<0 and y<0):
-                direction+=math.pi
-            elif (x<0 and y>0):
-                direction+=math.pi
-            elif (y==0):
-                if(x<0):
-                    direction=math.pi
-                elif(x>0):
-                    direction=0
-                
-        self.directionAngle=direction
+        return
+        
                 
                 
     def calculateClosestCorner(self, originCorner, pathFinder): #Calculates the closest exterior corner to a grid position
@@ -226,11 +228,16 @@ class enemy(characterClass):
         
         centerX=self.currentPos[0]+0.5 #Calculate the center of the current tile
         centerY=self.currentPos[1]+0.5 #Calculate the center of the current tile
-        nextX=int(centerX+3*(math.cos(self.directionAngle))) #Calculate next X position
-        nextY=int(centerY+3*(math.sin(self.directionAngle))) #Calculate next Y position
-        if(nextX<WIDTH2/5 and nextY<HEIGHT2/5 and nextX>0 and nextY>0): #The character is inside the limits
+        #nextX=int(centerX+3*(math.cos(self.directionAngle))) #Calculate next X position
+        #nextY=int(centerY+3*(math.sin(self.directionAngle))) #Calculate next Y position
+        nextX=int(centerX+self.speed*self.directionVector[0]) #Calculate next X position
+        nextY=int(centerY+self.speed*self.directionVector[1]) #Calculate next Y position
+        
+        if(nextX<WIDTH2/5 and nextY<HEIGHT2/5 and nextX>0 and nextY>0): #The character is inside the limits and is not colliding with any obstacle
             self.currentPos[0]=nextX #Update X pos
             self.currentPos[1]=nextY #Update Y pos
+        else:
+            self.directionVector=[0,0] #No force is applied
     
         #print(self.currentPos)
                                                       
@@ -269,16 +276,104 @@ class enemy(characterClass):
 
 
 
-class RedGhost(enemy): #Red (ambusher) enemy class
+class RedGhost(enemy): #Red (leader) enemy class
     
     def __init__(self, objectiveChar):
-        enemy.__init__(self, objectiveChar, "imagenes/red.png")
+        enemy.__init__(self, "imagenes/red.png")
+        self.separationCoefficient=1
+        self.chasingCoefficient=8
+        
+        self.mainCharacter=objectiveChar
+        self.objective=objectiveChar #Sets the input class as the objective character
+        self.objectivePos[0]=self.objective.currentPos[0] #Sets the objective's tile index as the objective's destination tile
+        self.objectivePos[1]=self.objective.currentPos[1]        
+        
+        #Behaviour tree definition:
+        self.rootNode=SelectorNode()
+        self.rootNode.addChild(SequenceNode())
+        self.rootNode.addChild(SequenceNode())
+        self.rootNode.addChild(SequenceNode())
+        self.rootNode.getChild(0).addChild(Action(self.verifyMax, 0)) #Verify number of minions=max
+        self.rootNode.getChild(0).addChild(Action(self.chaseCharacter)) #Chase character
+        self.rootNode.getChild(1).addChild(Action(self.verifyMax, 1)) #Verify number of minions between threshold and max
+        self.rootNode.getChild(1).addChild(Action(self.pickObjective)) #Decide to chase main character or reach power and do it
+        self.rootNode.getChild(2).addChild(Action(self.verifyMax, 2)) #Verify number of minions below threshold
+        self.rootNode.getChild(2).addChild(Action(self.reachPower)) #Reach power
+        
         self.currentPos=[120,90] #Initial character position
-        self.destPos=[120,90] #Initial destination position (same as initial position)        
+        self.destPos=[120,90] #Initial destination position (same as initial position)
+        self.directionVector=[1,1]
+        
+        self.numberOfMinions=5 #Number of initial minions the ghost has
+        self.maxMinions=5 #Maximum minion capacity
+        self.minionsThreshold=3 #Inferior threshold for the number of minions. Triggers the "star chase" mode.
+        self.minions=[] #Create minions list
+        for i in range(0,self.numberOfMinions): #Fill minions list
+            self.minions.append(Minion(self, [self.currentPos[0], self.currentPos[1]])) #Create minion instance with self as its boss and ond self position
+        
+    
+    def executeTree(self):
+        self.rootNode.executeNode()
+        
+    
+    def verifyMax(self, verificationType):
+        if verificationType==0:
+            return self.numberOfMinions==self.maxMinions
+        elif verificationType==1:
+            return (self.numberOfMinions<self.maxMinions and self.numberOfMinions>=self.minionsThreshold)
+        elif verificationType==2:
+            return self.numberOfMinions<self.minionsThreshold
 
 
-    def waitForSpawn(self): #Function for the "Start" state
-        self.currentState=self.states.Pathfollowing #Next state
+    def chaseCharacter(self):
+        print("Personaje")
+        self.objective=self.mainCharacter
+        self.move()
+    
+    
+    def reachPower(self):
+        print("Poder")
+        if (len(powers)!=0):
+            self.objective=powers[0]
+        else:
+            self.objective=self.mainCharacter
+        self.move()
+    
+    
+    def pickObjective(self):
+        print("Escoger")
+        if (len(powers)!=0):
+            print("Hay poder")
+            distanceToMainCharacter=calculateContinuousDistance(self.currentPos, self.mainCharacter.currentPos)
+            distanceToPowerUp=calculateContinuousDistance(self.currentPos, powers[0].currentPos)
+            if(distanceToPowerUp<distanceToMainCharacter):
+                self.reachPower()
+            else:
+                self.chaseCharacter()
+        else:
+            print("No hay poder")
+            self.chaseCharacter()
+        
+        
+    def killMinion(self):
+        if(self.numberOfMinions>0):
+            self.minions.pop() #Remove minion from the list and the garbage collector should delete it from memory
+            self.numberOfMinions-=1
+    
+    
+    def respawnMinion(self):
+        if(self.numberOfMinions<self.maxMinions):
+            self.minions.append(Minion(self, [self.currentPos[0], self.currentPos[1]])) #Create minion instance with self as its boss and ond self position
+            self.numberOfMinions+=1
+            
+            
+    def checkCollision(self): #Checks collision with the main character
+        if(pygame.sprite.collide_rect(self, self.mainCharacter)):
+            return True
+        for minion in self.minions:
+            if(pygame.sprite.collide_rect(minion, self.mainCharacter)):
+                return True
+        return False
 
 
     """def findPath(self): #Function for the "Pathfinding" state
@@ -295,18 +390,153 @@ class RedGhost(enemy): #Red (ambusher) enemy class
     def move(self):
         enemy.move(self) #Call the regular enemy pathfollowing function
         
-        if(self.objective.powerUPflag): #Check for main character's powerUPflag
-            self.image=loadImage("imagenes/vulnerable.png", True)
-            self.currentState=self.states.Escape
-        elif(self.objectivePos[0]!=self.objective.currentPos[0] or self.objectivePos[1]!=self.objective.currentPos[1]): #Main character's tile has changed
+        self.objectivePos[0]=self.objective.currentPos[0] #Gets the objective's position tile
+        self.objectivePos[1]=self.objective.currentPos[1]        
+        x=self.objectivePos[0]-self.currentPos[0]
+        y=self.objectivePos[1]-self.currentPos[1]
+        distance=(abs(x)+abs(y))/10
+        if(distance==0): #Distance is 0
+            distance=0.1 #Set it to a very small value to avoid division by zero
+        
+        print("Ghost pos", self.currentPos)
+        print("Obj pos", self.objectivePos)
+        self.directionVector[0]=x*self.chasingCoefficient/distance
+        self.directionVector[1]=y*self.chasingCoefficient/distance
+        
+        if len(obstacles): #There are obstacles in the level
+            for obst in obstacles: #Apply separation rules to obstacles (concatenation of lists)
+                x=obst.currentPos[0]-self.currentPos[0]
+                y=obst.currentPos[1]-self.currentPos[1]
+                distance=calculateMagnitude(x, y)
+                if(distance<10): #Obstacle is too near (collision)
+                    distance/=5
+                if(distance): #Character's position is different
+                    #Separation force is contrary to the vector from self to obstacle
+                    self.directionVector[0]-=(x/distance)*self.separationCoefficient*10
+                    self.directionVector[1]-=(y/distance)*self.separationCoefficient*10
+                else: #Character position is the same. Apply force to "disassemble" the group (contrary to the cohesion force)
+                    self.directionVector[0]-=self.cohesionVector[0]*self.separationCoefficient*10
+                    self.directionVector[1]-=self.cohesionVector[1]*self.separationCoefficient*10
+        
+        self.directionVector=normalizeVector(self.directionVector)
+        
+        #if(self.objective.powerUPflag): #Check for main character's powerUPflag
+            #self.image=loadImage("imagenes/vulnerable.png", True)
+            #self.currentState=self.states.Escape
+        if(self.objectivePos[0]!=self.objective.currentPos[0] or self.objectivePos[1]!=self.objective.currentPos[1]): #Main character's tile has changed
             #self.currentState=self.states.Pathfinding #Change state to find a new path since the main character destination tile has changed
                                                       #Changing the state rather than calling the path calculation routine makes this character take 1 cycle to "think" the path,
                                                       #giving the player a little speed advantage and reducing the game difficulty
             #self.findPath()
             self.moveTo()
         
+        return True #Function correctly executed
+
+
+
+class Minion(enemy): #Minion class. This are the class for the ghosts which follow the leader.
+    def __init__(self, leader, initialPos):
+        enemy.__init__(self, "imagenes/minion.png")
+        self.neighbours=[]
+        self.boss=leader #Assign the leader ghost as the boss of this minion
+        self.directionVector=[0,0] #[x, y]
+        self.currentPos=initialPos
+        self.cohesionCoefficient=4
+        self.alignmentCoefficient=2
+        self.separationCoefficient=4
+
+        
+    def findNeighbours(self): #Function which simulates the minion view. Must be executed periodically.
+        self.directionVector=[0,0] #The direction vector has to be set to 0 for recalculation
+        neighbourhood=30
+        visionAngle=240*math.pi/180
+        self.neighbours=[]
+        for partner in self.boss.minions: #Checks for every minion with the same boss (partners)
+            x=partner.currentPos[0]-self.currentPos[0]
+            y=partner.currentPos[1]-self.currentPos[1]
+            partnerAngle=abs(calculateAngle(x, y)-calculateAngle(self.directionVector[0], self.directionVector[1]))
+            if  partner!=self and calculateContinuousDistance(self.currentPos, partner.currentPos) < neighbourhood and partnerAngle < visionAngle: #240 degrees vision.
+                self.neighbours.append(partner) #Add neighbour
+                #print("Hola")
+        #if calculateContinuousDistance(self.currentPos, self.boss.currentPos) < neighbourhood: #The leader is a neighour
+            #self.neighbours.append(self.boss)
+            #print("Mundo")
+        self.neighbours.append(self.boss)
         
         
+    def cohesionRule(self):
+        if len(self.neighbours): #Checks if a neighbour exists
+            averageX=0
+            averageY=0
+            for neighbour in self.neighbours: #Take each neighbour into account for calculating the average position for all of them
+                averageX+=neighbour.currentPos[0] #Add X coordinate
+                averageY+=neighbour.currentPos[1] #Add Y coordinate
+            #Calculate averages by dividing by the number of neighbours
+            averageX=averageX/len(self.neighbours)
+            averageY=averageY/len(self.neighbours)
+            
+            x=averageX-self.currentPos[0]
+            y=averageY-self.currentPos[1]
+            direction=calculateAngle(x, y)
+            distance=calculateMagnitude(x, y)
+            self.cohesionVector=[x, y]
+            self.directionVector[0]+=distance*self.cohesionVector[0]*self.cohesionCoefficient
+            self.directionVector[1]+=distance*self.cohesionVector[1]*self.cohesionCoefficient
+        
+        
+    def alignmentRule(self):
+        if len(self.neighbours): #Checks if a neighbour exists
+            averageXDirection=0
+            averageYDirection=0
+            ponderationTotal=0
+            for neighbour in self.neighbours:
+                #The ponderation coefficient is proportional to the direction difference
+                ponderationCoefficient=calculateAngle(neighbour.directionVector[0],neighbour.directionVector[1])-calculateAngle(self.directionVector[0],self.directionVector[1])
+                ponderationTotal+=ponderationCoefficient
+                averageXDirection+=neighbour.directionVector[0]*ponderationCoefficient
+                averageYDirection+=neighbour.directionVector[1]*ponderationCoefficient
+            
+            #Calculate averages by dividing by the total of ponderation coefficients
+            if(ponderationTotal): #Ponderation total different from 0 (different neighbour angles)
+                averageXDirection=averageXDirection/ponderationTotal
+                averageYDirection=averageYDirection/ponderationTotal
+            
+            self.directionVector[0]+=averageXDirection*self.alignmentCoefficient
+            self.directionVector[1]+=averageYDirection*self.alignmentCoefficient
+    
+    
+    def separationRule(self):
+        if len(self.neighbours+obstacles): #There are any neighbours or obstacles
+            for neighbour in (self.neighbours+obstacles): #Apply separation rules to both neighbours and obstacles (concatenation of lists)
+                x=neighbour.currentPos[0]-self.currentPos[0]
+                y=neighbour.currentPos[1]-self.currentPos[1]
+                distance=calculateMagnitude(x, y)
+                #print("Vecino:", neighbour)
+                if type(neighbour) is obstacle: #Check if the object is an obstacle in order to apply an special scalation factor
+                    #print("Distancia:", distance)
+                    if(distance<10): #Obstacle is too near (collision)
+                        distance*=3
+                    else:
+                        distance*=15
+                if(distance): #Character's position is different
+                    #Separation force is contrary to the vector from self to neighbour
+                    self.directionVector[0]-=(x/distance)*self.separationCoefficient*10
+                    self.directionVector[1]-=(y/distance)*self.separationCoefficient*10
+                else: #Character position is the same. Apply force to "disassemble" the group (contrary to the cohesion force)
+                    self.directionVector[0]-=self.cohesionVector[0]*self.separationCoefficient*10
+                    self.directionVector[1]-=self.cohesionVector[1]*self.separationCoefficient*10
+                
+    
+    def flocking(self):
+        self.findNeighbours()
+        self.cohesionRule()
+        self.alignmentRule()
+        self.separationRule()
+        self.directionVector=normalizeVector(self.directionVector)
+        self.move()
+
+
+
 class halfBakedPizza(pygame.sprite.Sprite): #Main character class
         lastKey=keys.RIGHT #Initial direction
         powerUPflag=False #Power up activated flag. Initially false
@@ -326,8 +556,8 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
             self.lastCorner=47 #Initial value of the previous corner
             self.image = loadImage("imagenes/pizza.png", True)
             self.rect = self.image.get_rect()
-            self.rect.centery = ((self.currentPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
-            self.rect.centerx = ((self.currentPos[1]+1) * 5)
+            self.rect.centerx = ((self.currentPos[0]+1) * 5) #The tile position is converted to pixels position (1 is added to currentPos to eliminate 0 based indexing)
+            self.rect.centery = ((self.currentPos[1]+1) * 5)
             
             
         def activatePower(self):
@@ -352,7 +582,13 @@ class halfBakedPizza(pygame.sprite.Sprite): #Main character class
             centerY=self.currentPos[1]+0.5 #Calculate the center of the current tile
             nextX=int(centerX+4*(math.cos(self.directionAngle))) #Calculate next X position
             nextY=int(centerY+4*(math.sin(self.directionAngle))) #Calculate next Y position
-            if(nextX<WIDTH2/5 and nextY<HEIGHT2/5 and nextX>0 and nextY>0): #The character is inside the limits
+            
+            obstacleCollision=False #By default, the character is not colliding with any obstacle
+            for obs in obstacles: #Check for every obstacle if the character collides with it
+                if(calculateContinuousDistance([nextX, nextY], obs.currentPos)<10):
+                    obstacleCollision=True #Raise flag
+
+            if(nextX<WIDTH2/5 and nextY<HEIGHT2/5 and nextX>0 and nextY>0 and obstacleCollision==False): #The character is inside the limits
                 self.currentPos[0]=nextX #Update X pos
                 self.currentPos[1]=nextY #Update Y pos
             
@@ -370,6 +606,8 @@ def main():
     #Setup window
     screen = pygame.display.set_mode((WIDTH2, HEIGHT2)) #Set window size
     pygame.display.set_caption("PAC - Level 2") #Set window caption
+    powerXlimits=[20, 180]
+    powerYlimits=[20, 120]
 
     bg=loadImage('imagenes/level2.png', False) #Load background image
     clock = pygame.time.Clock() #Load PyGame clock
@@ -377,10 +615,15 @@ def main():
     #calcLevelMatrix() #Calculate walls positions matrix
     #print (levelMatrix)
     
+    powers.append(powerUP([random.randint(powerXlimits[0],powerXlimits[1]),random.randint(powerYlimits[0],powerYlimits[1])])) #Place power on random position
+    obstacles.append(obstacle([40,40]))
+    obstacles.append(obstacle([40,100]))
+    obstacles.append(obstacle([160,100]))
+    obstacles.append(obstacle([160,40]))
+    
     PAC=halfBakedPizza() #Create character instance
     blinky=RedGhost(PAC) #Create red enemy instance with PAC as it's objective
     #enemies=[blinky, pinky, clyde]
-    powers=[powerUP([6,1]), powerUP([6,26]), powerUP([26,1]), powerUP([26,26])]
     
     pygame.key.set_repeat(50, 50) #(initialDelay, delayInterval)
 
@@ -391,8 +634,6 @@ def main():
                     key = PAC.changeAngle(keys.LEFT)
                 if event.key == pygame.K_RIGHT: #Pressed key is right arrow
                     key = PAC.changeAngle(keys.RIGHT)
-                #if event.key == pygame.K_SPACE: #Pressed key is spacebar
-                    #PAC.togglePower()
 
             if event.type == QUIT:
                 exit()
@@ -400,7 +641,7 @@ def main():
         PAC.move() #Move the main character
         PAC.draw() #Draw the character on it's actual position
         
-        blinky.executeState() #Execute function of the actual state of the red enemy
+        blinky.executeTree() #Execute function of the actual state of the red enemy
         blinky.draw() #Draw the enemy on it's actual position
         """pinky.executeState() #Execute function of the actual state of the pink enemy
         pinky.draw() #Draw the enemy on it's actual position        
@@ -409,49 +650,43 @@ def main():
 
         screen.blit(bg, (0, 0)) #Put background in position 0,0 (it has to be drawn before other elements for them to appear on top of it)
         
-        """for power in powers: #Checks collision with every power pellet
-            screen.blit(power.image, power.rect) #Show pellet sprite (it has to be drawn before the characters in order to appear below them)
-            if(power.checkCollision(PAC)): #If the pellet collides with the main character, remove it
-                powers.remove(power) #Remove the object from the list and the garbage collector should delete it from memory"""
-                
+        if(len(powers)==0): #Power has been consumed
+            powers.append(powerUP([random.randint(powerXlimits[0],powerXlimits[1]),random.randint(powerYlimits[0],powerYlimits[1])]))
+            
+        power=powers[0] #Checks collision with the power pellet
+        
+        for obs in obstacles:
+            screen.blit(obs.image, obs.rect)
+            if(calculateContinuousDistance(power.currentPos, obs.currentPos)<13): #Recalculate power pos if it collides with any obstacle
+                powers.pop()
+                powers.append(powerUP([random.randint(powerXlimits[0],powerXlimits[1]),random.randint(powerYlimits[0],powerYlimits[1])]))
+            
+        screen.blit(power.image, power.rect) #Show pellet sprite (it has to be drawn before the characters in order to appear below them)
+        if(power.checkCollision(PAC, blinky)): #If the pellet collides with the main character, remove it
+            powers.pop() #Remove the object from the list and the garbage collector should delete it from memory
+            
+        if(blinky.numberOfMinions==0): #Enemy lose
+            del blinky
+            blinky=blinky=RedGhost(PAC)
+            
+        if(blinky.checkCollision()): #Restart game state
+            del PAC #Delete main character
+            del blinky #Delete main enemy
+            if(len(powers)!=0):
+                powers.pop() #Delete powerUP
+            powers.append(powerUP([random.randint(powerXlimits[0],powerXlimits[1]),random.randint(powerYlimits[0],powerYlimits[1])])) #Place power on random position
+            PAC=halfBakedPizza() #Create character instance
+            blinky=RedGhost(PAC) #Create red enemy instance with PAC as it's objective
+        
         screen.blit(PAC.image, PAC.rect) #Show character
         screen.blit(blinky.image, blinky.rect) #Show enemy 1
-        """screen.blit(pinky.image, pinky.rect) #Show enemy 2
-        screen.blit(clyde.image, clyde.rect) #Show enemy 3"""
+        
+        for minion in blinky.minions:
+            minion.flocking()
+            minion.draw()
+            screen.blit(minion.image, minion.rect) #Show minion 1
         
         pygame.display.flip() #Update screen
-        
-        #Check collisions between the main character and the enemies:
-        i=0 #Index of the enemy
-        """for enemy in enemies:
-            if(pygame.sprite.collide_rect(PAC, enemy)): #Check collision with each enemy
-            #if (pygame.sprite.collide_rect(PAC, blinky) or pygame.sprite.collide_rect(PAC, pinky) or pygame.sprite.collide_rect(PAC, clyde)):
-                if(PAC.powerUPflag): #The main character hass the power up
-                    #Check which enemy is the "killed" one:
-                    if(i==0): 
-                        del blinky #Delete the enemy instance
-                        blinky=RedGhost(PAC) #Create a new enemy instance
-                    if(i==1):
-                        del pinky
-                        pinky=PinkGhost(PAC)
-                    if(i==2):
-                        del clyde
-                        clyde=OrangeGhost(PAC)
-                else:
-                    #Delete the actual game state
-                    del PAC
-                    del blinky
-                    del pinky
-                    del clyde
-                    #Restart the game state
-                    PAC=halfBakedPizza() #Create character instance
-                    blinky=RedGhost(PAC) #Create red enemy instance with PAC as it's objective
-                    pinky=PinkGhost(PAC) #Create pink enemy instance with PAC as it's objective
-                    clyde=OrangeGhost(PAC) #Create orange enemy instance with PAC as it's objective
-                    key=keys.RIGHT #Set the initial value of key
-                
-                enemies=[blinky, pinky, clyde] #Restart the enemies list with the new instances
-            i+=1 """
         
         clock.tick(10) #Mantains the FPS less or equal than 10 (Puts a delay to the frame actualization to mantain the game velocity to 10 cycles per second)
         
